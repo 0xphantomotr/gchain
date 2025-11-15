@@ -1,0 +1,6 @@
+bin/
+*.db
+.coverage.out
+.DS_STORE
+/idea
+*.log
