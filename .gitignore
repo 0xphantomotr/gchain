@@ -1,6 +1,6 @@
 bin/
 *.db
-.coverage.out
-.DS_STORE
-/idea
+coverage.out
+.DS_Store
+.idea
 *.log
