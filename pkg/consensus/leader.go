@@ -9,6 +9,7 @@ import (
 
 	"github.com/0xphantomotr/gchain/pkg/chain"
 	"github.com/0xphantomotr/gchain/pkg/mempool"
+	"github.com/0xphantomotr/gchain/pkg/metrics"
 	"github.com/0xphantomotr/gchain/pkg/state"
 	"github.com/0xphantomotr/gchain/pkg/types"
 )
@@ -166,6 +167,8 @@ func (e *LeaderEngine) commitBlockLocked(block *types.Block) {
 		log.Printf("commit add block error: %v", err)
 		return
 	}
+
+	metrics.ObserveBlockCommit(block.Header.Height)
 
 	for _, tx := range block.Transactions {
 		e.mempool.Remove(tx.Hash)

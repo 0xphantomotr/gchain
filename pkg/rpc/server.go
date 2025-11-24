@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"expvar"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/0xphantomotr/gchain/pkg/chain"
 	"github.com/0xphantomotr/gchain/pkg/mempool"
+	"github.com/0xphantomotr/gchain/pkg/metrics"
 	"github.com/0xphantomotr/gchain/pkg/p2p"
 	"github.com/0xphantomotr/gchain/pkg/state"
 	"github.com/0xphantomotr/gchain/pkg/types"
@@ -50,6 +52,7 @@ func NewServer(chain *chain.Manager, state *state.Manager, pool *mempool.Mempool
 	mux.HandleFunc("/block/", srv.handleGetBlock)
 	mux.HandleFunc("/balance/", srv.handleGetBalance)
 	mux.HandleFunc("/tip", srv.handleGetTip)
+	mux.Handle("/metrics", expvar.Handler())
 	srv.httpServer = &http.Server{Addr: listenAddr, Handler: mux}
 	return srv
 }
@@ -103,6 +106,7 @@ func (s *Server) handleSubmitTx(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse(err))
 		return
 	}
+	metrics.IncTxSubmitted()
 
 	if s.transport != nil {
 		payload := p2p.MustMarshalPayload(tx)

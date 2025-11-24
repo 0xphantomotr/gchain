@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/0xphantomotr/gchain/pkg/metrics"
 )
 
 type Peer struct {
@@ -94,6 +96,7 @@ func (s *Server) dispatch(peer PeerInfo, env Envelope) {
 func (s *Server) Broadcast(env Envelope) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	metrics.SetPeerCount(len(s.peers))
 	for id, peer := range s.peers {
 		if env.PeerID != "" && env.PeerID == id {
 			continue
@@ -109,6 +112,7 @@ func (s *Server) Broadcast(env Envelope) {
 func (s *Server) BroadcastExcept(peerID string, env Envelope) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	metrics.SetPeerCount(len(s.peers))
 	for id, peer := range s.peers {
 		if id == peerID {
 			continue
@@ -128,6 +132,7 @@ func (s *Server) removePeer(id string) {
 		close(peer.quit)
 		peer.conn.Close()
 		delete(s.peers, id)
+		metrics.SetPeerCount(len(s.peers))
 	}
 }
 
@@ -189,6 +194,7 @@ func (s *Server) handleConnection(conn net.Conn, inbound bool) {
 		return
 	}
 	s.peers[peerID] = peer
+	metrics.SetPeerCount(len(s.peers))
 	s.mu.Unlock()
 
 	go s.readLoop(peer)
