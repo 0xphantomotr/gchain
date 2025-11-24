@@ -12,6 +12,7 @@ import (
 
 	"github.com/0xphantomotr/gchain/pkg/chain"
 	"github.com/0xphantomotr/gchain/pkg/mempool"
+	"github.com/0xphantomotr/gchain/pkg/p2p"
 	"github.com/0xphantomotr/gchain/pkg/state"
 	"github.com/0xphantomotr/gchain/pkg/types"
 )
@@ -37,12 +38,13 @@ type Server struct {
 	chain      *chain.Manager
 	state      *state.Manager
 	mempool    *mempool.Mempool
+	transport  p2p.Transport
 	httpServer *http.Server
 }
 
-func NewServer(chain *chain.Manager, state *state.Manager, pool *mempool.Mempool, listenAddr string) *Server {
+func NewServer(chain *chain.Manager, state *state.Manager, pool *mempool.Mempool, transport p2p.Transport, listenAddr string) *Server {
 	mux := http.NewServeMux()
-	srv := &Server{chain: chain, state: state, mempool: pool}
+	srv := &Server{chain: chain, state: state, mempool: pool, transport: transport}
 	mux.HandleFunc("/healthz", srv.handleHealth)
 	mux.HandleFunc("/tx", srv.handleSubmitTx)
 	mux.HandleFunc("/block/", srv.handleGetBlock)
@@ -65,28 +67,28 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSubmitTx(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodPost {
-        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-        return
-    }
-    defer r.Body.Close()
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	defer r.Body.Close()
 
-    var req SubmitTxRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        writeJSON(w, http.StatusBadRequest, errorResponse(err))
-        return
-    }
+	var req SubmitTxRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err))
+		return
+	}
 
-    from, err := parseAddress(req.From)
-    if err != nil {
-        writeJSON(w, http.StatusBadRequest, errorResponse(err))
-        return
-    }
-    to, err := parseAddress(req.To)
-    if err != nil {
-        writeJSON(w, http.StatusBadRequest, errorResponse(err))
-        return
-    }
+	from, err := parseAddress(req.From)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err))
+		return
+	}
+	to, err := parseAddress(req.To)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err))
+		return
+	}
 
 	tx := types.Transaction{
 		From:      from,
@@ -95,14 +97,19 @@ func (s *Server) handleSubmitTx(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now(),
 	}
 
-    tx.Hash = tx.CalculateHash()
+	tx.Hash = tx.CalculateHash()
 
-    if err := s.mempool.Add(tx); err != nil {
-        writeJSON(w, http.StatusBadRequest, errorResponse(err))
-        return
-    }
+	if err := s.mempool.Add(tx); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err))
+		return
+	}
 
-    writeJSON(w, http.StatusOK, SubmitTxResponse{TxHash: tx.Hash.String()})
+	if s.transport != nil {
+		payload := p2p.MustMarshalPayload(tx)
+		s.transport.Broadcast(p2p.NewEnvelope(p2p.MessageTypeTx, payload, ""))
+	}
+
+	writeJSON(w, http.StatusOK, SubmitTxResponse{TxHash: tx.Hash.String()})
 }
 
 func (s *Server) handleGetBlock(w http.ResponseWriter, r *http.Request) {
@@ -130,62 +137,62 @@ func (s *Server) handleGetBlock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetBalance(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodGet {
-        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-        return
-    }
-    addrStr := strings.TrimPrefix(r.URL.Path, "/balance/")
-    addr, err := parseAddress(addrStr)
-    if err != nil {
-        writeJSON(w, http.StatusBadRequest, errorResponse(err))
-        return
-    }
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	addrStr := strings.TrimPrefix(r.URL.Path, "/balance/")
+	addr, err := parseAddress(addrStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse(err))
+		return
+	}
 
-    account, err := s.state.GetAccount(addr)
-    if err != nil {
-        writeJSON(w, http.StatusInternalServerError, errorResponse(err))
-        return
-    }
+	account, err := s.state.GetAccount(addr)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse(err))
+		return
+	}
 
-    writeJSON(w, http.StatusOK, BalanceResponse{
-        Address: addr.String(),
-        Balance: account.Balance,
-    })
+	writeJSON(w, http.StatusOK, BalanceResponse{
+		Address: addr.String(),
+		Balance: account.Balance,
+	})
 }
 
 func (s *Server) handleGetTip(w http.ResponseWriter, r *http.Request) {
-    height, hash := s.chain.Tip()
-    writeJSON(w, http.StatusOK, map[string]interface{}{
-        "height": height,
-        "hash":   hash.String(),
-    })
+	height, hash := s.chain.Tip()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"height": height,
+		"hash":   hash.String(),
+	})
 }
 
 // Helpers
 
 type errorPayload struct {
-    Error string `json:"error"`
+	Error string `json:"error"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(status)
-    _ = json.NewEncoder(w).Encode(payload)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func errorResponse(err error) errorPayload {
-    return errorPayload{Error: err.Error()}
+	return errorPayload{Error: err.Error()}
 }
 
 func parseAddress(hexStr string) (types.Address, error) {
-    var addr types.Address
-    b, err := hex.DecodeString(strings.TrimPrefix(hexStr, "0x"))
-    if err != nil {
-        return addr, err
-    }
-    if len(b) != len(addr) {
-        return addr, fmt.Errorf("invalid address length")
-    }
-    copy(addr[:], b)
-    return addr, nil
+	var addr types.Address
+	b, err := hex.DecodeString(strings.TrimPrefix(hexStr, "0x"))
+	if err != nil {
+		return addr, err
+	}
+	if len(b) != len(addr) {
+		return addr, fmt.Errorf("invalid address length")
+	}
+	copy(addr[:], b)
+	return addr, nil
 }

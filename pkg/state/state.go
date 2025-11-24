@@ -147,3 +147,24 @@ func (m *Manager) commitLocked() error {
 	}
 	return nil
 }
+
+func (m *Manager) SeedAccount(addr types.Address, balance uint64, nonce uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	acct := &Account{
+		Address: addr,
+		Balance: balance,
+		Nonce:   nonce,
+	}
+	m.cache[addr] = acct
+
+	payload, err := json.Marshal(acct)
+	if err != nil {
+		return fmt.Errorf("marshal account %s: %w", addr.String(), err)
+	}
+	if err := m.store.Set(accountKey(addr), payload); err != nil {
+		return fmt.Errorf("persist account %s: %w", addr.String(), err)
+	}
+	return nil
+}

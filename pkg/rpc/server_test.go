@@ -26,7 +26,7 @@ func newTestServer(t *testing.T) (*Server, *chain.Manager, *state.Manager, *memp
 	stateMgr := state.NewManager(state.NewMemoryStore())
 	pool := mempool.New(100, nil)
 
-	server := NewServer(chainMgr, stateMgr, pool, ":0")
+	server := NewServer(chainMgr, stateMgr, pool, nil, ":0")
 	return server, chainMgr, stateMgr, pool
 }
 
@@ -104,7 +104,7 @@ func TestGetBalance(t *testing.T) {
 	seedAccount(t, stateStore, state.Account{Address: addr, Balance: 42})
 	stateMgr := state.NewManager(stateStore)
 
-	server := NewServer(chainMgr, stateMgr, mempool.New(10, nil), ":0")
+	server := NewServer(chainMgr, stateMgr, mempool.New(10, nil), nil, ":0")
 	ts := httptest.NewServer(server.httpServer.Handler)
 	defer ts.Close()
 
